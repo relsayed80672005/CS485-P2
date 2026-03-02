@@ -1,0 +1,15 @@
+The interface was designed to follow a simple step-by-step workflow that matches how a project 
+lead would normally turn a specification document into development tasks. The screen is divided 
+into two main sections: the uploaded specification on the left and the AI-generated Jira issues 
+on the right. This makes it easy for users to read the document while reviewing the generated tasks
+ without needing to switch pages. The design also includes different interface states such as empty,
+ loading, error, and success so the user always understands what the system is doing when the AI ​​is 
+processing the document.
+
+Another important design choice was allowing the project lead to review and edit the AI-generated 
+tasks before publishing them. Each issue is shown as a card with consistent formatting so the same
+ component can be reused across the interface. This keeps the UI organized and makes it easier to 
+scan through tasks quickly. Accessibility and usability were also considered by using clear labels
+ for buttons, strong color contrast for status indicators, and layouts that adjust between desktop 
+and mobile screen sizes. These choices help make the interface easier to use and understand for different
+ users and devices.
