@@ -4,12 +4,10 @@ import helmet from 'helmet';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname } from 'path';
 
-// Load environment variables
 dotenv.config();
 
-// Import routes
 import { generateIssuesRouter } from './src/routes/generateIssues.js';
 import { publishIssuesRouter } from './src/routes/publishIssues.js';
 import { healthRouter } from './src/routes/health.js';
@@ -17,13 +15,12 @@ import { authRouter } from './src/routes/auth.js';
 import { projectsRouter } from './src/routes/projects.js';
 import { documentsRouter } from './src/routes/documents.js';
 import { tasksRouter } from './src/routes/tasks.js';
+import { calculatorRouter } from './src/routes/calculator.js';
 
-// Import middleware
 import { errorHandler } from './src/middleware/errorHandler.js';
 import { requestLogger } from './src/middleware/requestLogger.js';
 import { generateRequestId } from './src/middleware/errorHandler.js';
 
-// Import database
 import { testConnection, closePool } from './src/database/connection.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,52 +29,56 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_LAMBDA = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
 
-// Security middleware
 app.use(helmet({
   contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false,
   crossOriginEmbedderPolicy: false
 }));
 
-// CORS: allow typical dev origins (localhost vs host.docker.internal both resolve to the same Vite app)
 function getCorsAllowedOrigins() {
+  const devDefaults = [
+    'http://localhost:5173',
+    'http://localhost:3001',
+    'http://127.0.0.1:5173',
+    'http://host.docker.internal:5173',
+  ];
+
   const fromEnv = process.env.FRONTEND_URL;
-  const parsed = fromEnv
+  const fromEnvList = fromEnv
     ? fromEnv.split(',').map((s) => s.trim()).filter(Boolean)
-    : ['http://localhost:5173'];
-  if (NODE_ENV === 'development') {
-    const devDefaults = [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'http://host.docker.internal:5173',
-    ];
-    return [...new Set([...parsed, ...devDefaults])];
-  }
-  return parsed;
+    : [];
+
+  return [...new Set([...devDefaults, ...fromEnvList])];
 }
 
-app.use(cors({
-  origin: getCorsAllowedOrigins(),
-  credentials: true
-}));
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed = getCorsAllowedOrigins();
+    if (allowed.includes(origin)) return callback(null, true);
+    if (/\.amplifyapp\.com$/.test(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin '${origin}' not allowed`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
 
-// Body parsing middleware
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Compression middleware
 app.use(compression());
 
-// Request ID generation
 app.use((req, res, next) => {
   req.id = generateRequestId();
   next();
 });
 
-// Request logging middleware
 app.use(requestLogger);
 
-// API Routes
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/projects', projectsRouter);
@@ -85,8 +86,8 @@ app.use('/api/documents', documentsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/generate-issues', generateIssuesRouter);
 app.use('/api/publish-issues', publishIssuesRouter);
+app.use('/api/calculator', calculatorRouter);
 
-// Root endpoint
 app.get('/', (req, res) => {
   res.json({
     name: 'AI Specification Breakdown API',
@@ -99,13 +100,13 @@ app.get('/', (req, res) => {
       documents: '/api/documents',
       tasks: '/api/tasks',
       generateIssues: '/api/generate-issues',
-      publishIssues: '/api/publish-issues'
+      publishIssues: '/api/publish-issues',
+      calculator: '/api/calculator',
     },
     documentation: 'See README.md for API details'
   });
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     error: 'Not Found',
@@ -115,12 +116,9 @@ app.use((req, res) => {
   });
 });
 
-// Global error handler (must be last)
 app.use(errorHandler);
 
-// Start server
 async function startServer() {
-  // Test database connection
   const dbConnected = await testConnection();
   if (!dbConnected) {
     console.error('Failed to connect to database. Please check your database configuration.');
@@ -141,9 +139,20 @@ async function startServer() {
   });
 }
 
-startServer();
+// Only start the HTTP server when running locally, not in Lambda
+if (!IS_LAMBDA && process.argv[1] === fileURLToPath(import.meta.url)) {
+  startServer();
+}
 
-// Graceful shutdown
+// Warm up DB connection in Lambda without blocking startup
+if (IS_LAMBDA) {
+  testConnection()
+    .then((ok) => {
+      if (!ok) console.warn('[Lambda] DB connection failed — continuing without DB');
+    })
+    .catch((err) => console.warn('[Lambda] DB connection error:', err.message));
+}
+
 process.on('SIGTERM', async () => {
   console.log('SIGTERM signal received: closing HTTP server');
   await closePool();
@@ -155,3 +164,5 @@ process.on('SIGINT', async () => {
   await closePool();
   process.exit(0);
 });
+
+export { app };
