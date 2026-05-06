@@ -53,19 +53,11 @@ function getCorsAllowedOrigins() {
 }
 
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const allowed = getCorsAllowedOrigins();
-    if (allowed.includes(origin)) return callback(null, true);
-    if (/\.amplifyapp\.com$/.test(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin '${origin}' not allowed`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: '*',
+  credentials: false,
 };
 
-app.options('*', cors(corsOptions));
+app.options('*', cors());
 app.use(cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
